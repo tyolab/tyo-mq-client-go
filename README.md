@@ -86,8 +86,10 @@ re-`Subscribe`, and queued messages replay.
 
 Node.js (and browsers) ships with the [server package](https://github.com/tyolab/tyo-mq);
 see also [Python](https://github.com/tyolab/tyo-mq-client-python),
-[C#](https://github.com/tyolab/tyo-mq-client-csharp), and
-[Java](https://github.com/tyolab/tyo-mq-client-java).
+[Rust](https://github.com/tyolab/tyo-mq-client-rust),
+[C/C++](https://github.com/tyolab/tyo-mq-client-cpp),
+[Java](https://github.com/tyolab/tyo-mq-client-java), and
+[C#](https://github.com/tyolab/tyo-mq-client-csharp).
 
 ## License
 
