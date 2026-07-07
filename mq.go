@@ -103,6 +103,13 @@ func (c *Client) Subscribe(req SubscribeReq, handler func(ConsumedMessage)) erro
 	if req.Producer == "" || req.Event == "" || req.Consumer == "" {
 		return fmt.Errorf("subscribe: Producer, Event, and Consumer are required")
 	}
+	// Durable queues are keyed by consumer_id on the server; when it is
+	// omitted the server falls back to the ephemeral socket id and replay
+	// is lost across reconnects. Default it to the stable consumer name,
+	// matching the Node/Python/Ruby clients.
+	if req.ConsumerID == "" {
+		req.ConsumerID = req.Consumer
+	}
 
 	consumeEvent := ConsumeEventName(req.Producer, req.Event, req.Scope)
 	autoAck := req.Ack && !req.ManualAck
