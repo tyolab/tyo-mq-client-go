@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+
+	"github.com/tyolab/tyo-mq-client-go/e2ee"
 )
 
 // Well-known tyo-mq protocol constants.
@@ -81,6 +83,23 @@ func (c *Client) RegisterConsumer(name string) error {
 // options emit a full ProduceReq: c.Emit("PRODUCE", tyomq.ProduceReq{...}).
 func (c *Client) Produce(from, event string, message interface{}) error {
 	return c.Emit("PRODUCE", ProduceReq{Event: event, Message: message, From: from})
+}
+
+// ProduceEncrypted seals message to the recipient's static public key
+// (65-byte uncompressed P-256 point, published under kid) and publishes it
+// end-to-end encrypted: the broker relays only ciphertext, and the enc
+// envelope tells the consuming client how to open it. See E2EE.md in the
+// tyo-mq repo.
+func (c *Client) ProduceEncrypted(from, event, to string, message interface{}, recipientPub []byte, kid string) error {
+	plaintext, err := json.Marshal(message)
+	if err != nil {
+		return fmt.Errorf("e2ee: marshal payload: %w", err)
+	}
+	enc, ciphertext, err := e2ee.Seal(recipientPub, event, to, from, plaintext, kid)
+	if err != nil {
+		return err
+	}
+	return c.Emit("PRODUCE", ProduceReq{Event: event, Message: ciphertext, From: from, To: to, Enc: enc})
 }
 
 // Ack acknowledges one ACK-enabled delivery by its MsgID.

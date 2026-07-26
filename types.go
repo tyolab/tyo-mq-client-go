@@ -1,6 +1,11 @@
 package tyomq
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"fmt"
+
+	"github.com/tyolab/tyo-mq-client-go/e2ee"
+)
 
 // ─── Authentication ───────────────────────────────────────────────────────────
 
@@ -148,6 +153,8 @@ type ProduceReq struct {
 	Event      string      `json:"event"`
 	Message    interface{} `json:"message"`
 	From       string      `json:"from"`
+	To         string      `json:"to,omitempty"`         // direct-addressing / E2EE recipient
+	Enc        *e2ee.Enc   `json:"enc,omitempty"`        // E2EE envelope; Message is then base64 ciphertext
 	Guaranteed bool        `json:"guaranteed,omitempty"` // persist until consumed
 	TTL        interface{} `json:"ttl,omitempty"`        // e.g. "1h" or ms
 	Method     string      `json:"method,omitempty"`     // "broadcast" when broadcasting
@@ -164,7 +171,30 @@ type ConsumedMessage struct {
 	Event   string          `json:"event"`
 	Message json.RawMessage `json:"message"`
 	From    string          `json:"from"`
+	To      string          `json:"to,omitempty"`
+	Enc     *e2ee.Enc       `json:"enc,omitempty"` // present ⇒ Message is a base64 ciphertext string
 	MsgID   string          `json:"msgId"`
+}
+
+// Encrypted reports whether this delivery carries an E2EE envelope. When true,
+// Message is a JSON string holding base64 ciphertext — open it with
+// OpenMessage (or e2ee.Open) before use.
+func (m *ConsumedMessage) Encrypted() bool {
+	return m.Enc != nil
+}
+
+// OpenMessage decrypts an E2EE delivery with the recipient's raw 32-byte
+// private scalar and returns the plaintext payload bytes (typically JSON).
+// It fails if the message is not encrypted or the key/envelope is wrong.
+func (m *ConsumedMessage) OpenMessage(priv []byte) ([]byte, error) {
+	if m.Enc == nil {
+		return nil, fmt.Errorf("e2ee: message is not encrypted")
+	}
+	var ciphertext string
+	if err := json.Unmarshal(m.Message, &ciphertext); err != nil {
+		return nil, fmt.Errorf("e2ee: encrypted message field is not a string: %w", err)
+	}
+	return e2ee.Open(priv, m.Enc, m.Event, m.To, m.From, ciphertext)
 }
 
 // ─── Server error ─────────────────────────────────────────────────────────────
