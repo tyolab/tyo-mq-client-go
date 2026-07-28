@@ -157,6 +157,41 @@ func (c *Client) Emit(event string, payload interface{}) error {
 	return c.writeText(conn, frame)
 }
 
+// EmitBinary emits a Socket.IO BINARY_EVENT whose single payload argument is a
+// raw binary attachment — no base64. On the wire (Engine.IO v4):
+//
+//	<text>    45<1>-[<nsp>,]["<event>",{"_placeholder":true,"num":0}]
+//	<binary>  <data bytes>
+//
+// The receiver (Node/browser socket.io) reconstructs the attachment, so its
+// handler sees the raw bytes as the event's first argument. Use this for
+// throughput-sensitive binary such as remote-desktop frames, where an Emit of a
+// base64 string would be ~33% larger. The header frame and its attachment are
+// written back-to-back under sendMu with nothing interleaved — the Socket.IO
+// decoder requires the attachment to immediately follow its header packet.
+func (c *Client) EmitBinary(event string, data []byte) error {
+	c.mu.Lock()
+	conn := c.conn
+	c.mu.Unlock()
+	if conn == nil {
+		return fmt.Errorf("not connected")
+	}
+
+	name, err := json.Marshal(event)
+	if err != nil {
+		return err
+	}
+	header := binaryEmitPrefix(c.namespace) + "[" + string(name) + `,{"_placeholder":true,"num":0}]`
+
+	c.sendMu.Lock()
+	defer c.sendMu.Unlock()
+	if err := conn.WriteMessage(websocket.TextMessage, []byte(header)); err != nil {
+		return err
+	}
+	c.log.Info("→ emit binary", "event", event, "bytes", len(data))
+	return conn.WriteMessage(websocket.BinaryMessage, data)
+}
+
 // Close sends a WebSocket close frame and tears down the connection.
 func (c *Client) Close() {
 	c.mu.Lock()
@@ -328,6 +363,19 @@ func emitPrefix(ns string) string {
 		return "42"
 	}
 	return "42" + ns + ","
+}
+
+// binaryEmitPrefix is the Engine.IO + Socket.IO prefix for a BINARY_EVENT with
+// exactly one attachment: "4" (EIO MESSAGE) + "5" (SIO BINARY_EVENT) + "1-"
+// (one attachment) + the namespace segment.
+//
+//	default ns → "451-"
+//	"/remote"  → "451-/remote,"
+func binaryEmitPrefix(ns string) string {
+	if ns == "" || ns == "/" {
+		return "451-"
+	}
+	return "451-" + ns + ","
 }
 
 // splitNamespace separates a full "42<ns>,<json>" frame into (namespace, json).
